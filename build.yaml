@@ -1,0 +1,9 @@
+builders:
+  service_isolate:
+    import: "package:service_isolate/builder.dart"
+    builder_factories: ["getBuilder"]
+    build_extensions: {
+      ".descriptor.pb": [".dart"]
+    }
+    auto_apply: dependents
+    build_to: source

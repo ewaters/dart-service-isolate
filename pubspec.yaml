@@ -7,12 +7,13 @@ environment:
 
 dependencies:
   protobuf: ^2.0.0
+  change_case: any
+  stream_channel: ^2.1.0
+  protoc_builder: any
 
 dev_dependencies:
   build_runner: ^2.1.5
   lints: ^1.0.0
-  stream_channel: ^2.1.0
-  protoc_builder: any
 
 dependency_overrides:
   protoc_builder:

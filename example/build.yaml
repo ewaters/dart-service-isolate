@@ -11,3 +11,8 @@ targets:
             - "proto/"
           out_dir: "lib/src/generated"
           build_descriptor: true
+      service_isolate:
+        options:
+          descriptor_dir: "lib/src/generated"
+          generated_dir: "lib/src/generated"
+          user_created_dir: "lib/src/services"
