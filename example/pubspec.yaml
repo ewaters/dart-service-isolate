@@ -1,0 +1,17 @@
+name: example
+description: An example of the service_isolate
+
+environment:
+  sdk: '>=2.14.4 <3.0.0'
+
+dependencies:
+  protobuf: ^2.0.0
+
+dev_dependencies:
+  build_runner: ^2.1.5
+  lints: ^1.0.0
+  test: any
+  service_isolate:
+    path: ../
+  protoc_builder:
+    path: ../../dart-protoc-builder

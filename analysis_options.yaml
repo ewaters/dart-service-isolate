@@ -1,0 +1,13 @@
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    - always_declare_return_types
+    - cancel_subscriptions
+    - close_sinks
+    - one_member_abstracts
+    - prefer_final_in_for_each
+    - package_api_docs
+    - public_member_api_docs
+    - comment_references
+    - lines_longer_than_80_chars

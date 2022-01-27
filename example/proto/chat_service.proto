@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+message JoinChannelRequest {
+  string nick = 1;
+  string channel_name = 2;
+}
+
+message JoinChannelResponse {
+  string topic = 1;
+  repeated string nick = 2;
+}
+
+message ObserveChannelRequest {
+  string channel_name = 1;
+}
+
+message StreamStatusResponse {
+  uint32 count = 1;
+}
+
+message InteractRequest {
+  oneof type {
+    string nick = 1;
+    string channel_name = 2;
+  }
+  string msg = 3;
+}
+
+message StatusMessage {
+  string nick = 1;
+  string status = 2;
+}
+
+message NickMessage {
+  int32 time_sec = 1;
+  string nick = 2;
+  string msg = 3;
+}
+
+// Example Chat service.
+service Chat {
+  // Simple non-streaming request.
+  rpc JoinChannel (JoinChannelRequest) returns (JoinChannelResponse);
+
+  // Server-stream.
+  rpc ObserveChannel (ObserveChannelRequest) returns (stream NickMessage);
+
+  // Client-stream.
+  rpc SendStatus (stream StatusMessage) returns (StreamStatusResponse);
+
+  // BiDi stream.
+  rpc Interact (stream InteractRequest) returns (stream NickMessage);
+}

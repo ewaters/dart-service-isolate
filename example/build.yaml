@@ -1,0 +1,13 @@
+targets:
+  $default:
+    sources:
+      - $package$
+      - lib/$lib$
+      - proto/**
+    builders:
+      protoc_builder:
+        options:
+          proto_paths:
+            - "proto/"
+          out_dir: "lib/src/generated"
+          build_descriptor: true
