@@ -94,6 +94,8 @@ class _ServiceBuilder {
 
   void _initBuffers() {
     _initInterface();
+    _initService();
+    _initIsolate();
   }
 
   void _initInterface() {
@@ -105,6 +107,33 @@ class _ServiceBuilder {
       _ignoreHeader,
       'import "$relServicePBPath";',
       'export "$relServicePBPath";',
+    ], "\n");
+  }
+
+  void _initService() {
+    String relInterfacePath =
+        path.relative(_interfacePath, from: path.dirname(_servicePath));
+    String relIsolatePath =
+        path.relative(_isolatePath, from: path.dirname(_servicePath));
+    _serviceFile.writeAll([
+      '/// REMOVE THIS TEXT: Edit this file and flesh out the service',
+      'import "$relInterfacePath";',
+      'export "$relInterfacePath";',
+      'export "$relIsolatePath";',
+    ], "\n");
+  }
+
+  void _initIsolate() {
+    String relServicePath =
+        path.relative(_servicePath, from: path.dirname(_isolatePath));
+    _isolateFile.writeAll([
+      _generatedHeader,
+      _ignoreHeader,
+      "import 'package:service_isolate/service_isolate.dart';",
+      "import 'package:stream_channel/isolate_channel.dart' as sc;",
+      "import 'dart:isolate' show SendPort;",
+      "import 'dart:async';",
+      "import '$relServicePath';",
     ], "\n");
   }
 
@@ -122,11 +151,9 @@ class _ServiceBuilder {
     _log("Add service ${svc.name}");
     final String serviceName = "${svc.name}Service";
     final String interfaceName = "${serviceName}Interface";
+    final String isolateName = "${serviceName}Isolate";
 
-    _interfaceFile.writeAll([
-      '',
-      "abstract class $interfaceName {",
-    ], "\n");
+    _interfaceFile.writeAll(['', "abstract class $interfaceName {", ''], "\n");
 
     _serviceFile.writeAll([
       '',
@@ -134,6 +161,12 @@ class _ServiceBuilder {
       "  static Future<$interfaceName> create() async {",
       "    return $serviceName();",
       "  }",
+      '',
+    ], "\n");
+
+    _isolateFile.writeAll([
+      '',
+      "class $isolateName extends $interfaceName {",
       '',
     ], "\n");
 
@@ -149,10 +182,22 @@ class _ServiceBuilder {
       _serviceFile.writeAll([
         "  @override",
         "  $signature {",
-        "    throw 'not implemented';"
-            "  }",
+        "    throw 'not implemented';",
+        "  }",
+        ''
+      ], "\n");
+      _isolateFile.writeAll([
+        "  @override",
+        "  $signature " + (m.serverStreaming ? "" : "async ") + "{",
+        "    throw 'not implemented';",
+        "  }",
+        ''
       ], "\n");
     }
+
+    _interfaceFile.writeln("}");
+    _serviceFile.writeln("}");
+    _isolateFile.writeln("}");
   }
 
   Future finalize() async {
@@ -161,5 +206,8 @@ class _ServiceBuilder {
 
     _log("Writing file $_servicePath with ${_serviceFile.toString()}");
     await _buildStep.writeAsString(_serviceAsset, _serviceFile.toString());
+
+    _log("Writing file $_isolatePath with ${_isolateFile.toString()}");
+    await _buildStep.writeAsString(_isolateAsset, _isolateFile.toString());
   }
 }
