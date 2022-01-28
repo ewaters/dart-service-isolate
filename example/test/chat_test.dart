@@ -1,4 +1,4 @@
-import 'package:example/chat_service.dart';
+import 'package:example/src/services/chat_service.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -29,13 +29,15 @@ void main() {
     expect(interactMsgs[0].msg, equals("You said 'Hi there!'? I agree!"));
   }
 
+  final config = ChatServiceConfig();
+
   test('Local instance', () async {
-    final chat = await ChatService.create();
+    final chat = await ChatService.create(config);
     await _testService(chat);
   });
 
   test('Isolate instance', () async {
-    final chat = await ChatServiceIsolate.create();
+    final chat = await ChatServiceIsolate.create(config);
     await _testService(chat);
     await chat.close();
   });

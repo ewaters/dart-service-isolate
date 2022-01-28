@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dart_style/dart_style.dart';
 import 'package:build/build.dart';
@@ -25,11 +26,6 @@ class ServiceIsolateBuilder implements Builder {
 
   @override
   Future<void> build(BuildStep buildStep) async {
-    print("ServiceIsolateBuilder build ${buildStep.inputId.path} ($buildStep)");
-    for (var out in buildStep.allowedOutputs) {
-      print("  allowed output: ${out.path}");
-    }
-
     final svcBuilder = _ServiceBuilder(this, buildStep);
 
     final descSet = pb.FileDescriptorSet.fromBuffer(
@@ -105,7 +101,6 @@ class _ServiceBuilder {
   void _initInterface() {
     String relServicePBPath =
         path.relative(_servicePBPath, from: path.dirname(_interfacePath));
-    _log("path from $_interfacePath to $_servicePBPath is $relServicePBPath");
     _interfaceFile.writeAll([
       _generatedHeader,
       _ignoreHeader,
@@ -152,7 +147,6 @@ class _ServiceBuilder {
       ChangeCase(m.name).toCamelCase();
 
   void addService(final pb.ServiceDescriptorProto svc) {
-    _log("Add service ${svc.name}");
     final String serviceName = "${svc.name}Service";
     final String interfaceName = "${serviceName}Interface";
     final String isolateName = "${serviceName}Isolate";
@@ -160,6 +154,8 @@ class _ServiceBuilder {
     final String configMessageType = _parent._configMessageSuffix.isEmpty
         ? ""
         : svc.name + _parent._configMessageSuffix;
+
+    _log("configMessageType $configMessageType");
 
     _interfaceFile.writeAll(['', "abstract class $interfaceName {", ''], "\n");
 
@@ -191,8 +187,13 @@ class _ServiceBuilder {
       "  $isolateName._new(this._iso);",
       '',
       "/// Creates a new $isolateName.",
-      "  static Future<$isolateName> create() async =>"
-          "$isolateName._new(await ServiceIsolate.spawn(_runIsolate));",
+      if (configMessageType.isNotEmpty)
+        "  static Future<$isolateName> create($configMessageType config) async =>"
+            "$isolateName._new(await ServiceIsolate.spawn(_runIsolate, "
+            "firstMessage: config));"
+      else
+        "  static Future<$isolateName> create() async =>"
+            "$isolateName._new(await ServiceIsolate.spawn(_runIsolate));",
       '',
       "/// Closes the underlying ServiceIsolate.",
       "  Future close() => _iso.close();",
@@ -319,12 +320,22 @@ class _ServiceBuilder {
     final formatter = DartFormatter(pageWidth: 80, fixes: StyleFix.all);
     Future writeAsset(AssetId asset, StringBuffer buf) async {
       String out = formatter.format(buf.toString());
-      _log("Writing file ${asset.path} with:\n\n $out");
+      final f = File(asset.path);
+      if (f.existsSync() && f.readAsStringSync() == out) {
+        _log("No changes to ${asset.path}");
+      } else {
+        _log("Writing file ${asset.path}");
+      }
+      // Write it even if there are no changes just to mark it as tracked.
       return _buildStep.writeAsString(asset, out);
     }
 
     writeAsset(_interfaceAsset, _interfaceFile);
-    writeAsset(_serviceAsset, _serviceFile);
     writeAsset(_isolateAsset, _isolateFile);
+    if (!File(_serviceAsset.path).existsSync()) {
+      writeAsset(_serviceAsset, _serviceFile);
+    } else {
+      _log("Skipping ${_serviceAsset.path} as it already exists");
+    }
   }
 }
