@@ -225,3 +225,41 @@ class ServiceIsolate {
     return response.stream;
   }
 }
+
+class ServiceIsolateHelper {
+  final sc.IsolateChannel channel;
+  final IsolateMessage reqData;
+  final Map<int, StreamController> clientStreamControllers;
+
+  static void _log(String msg) => print("     IsolateHelper: $msg");
+
+  ServiceIsolateHelper(
+      this.channel, this.reqData, this.clientStreamControllers) {
+    _log("got $reqData");
+  }
+
+  void onData(Object data) {
+    _log("_runIsolate.listen.${reqData.method} response to sink");
+    channel.sink.add(reqData.add(object: data));
+  }
+
+  void onError(error) {
+    _log("_runIsolate.listen.${reqData.method} error $error");
+    channel.sink.add(reqData.add(exception: error));
+  }
+
+  void onDone() {
+    _log("_runIsolate.listen.${reqData.method} onDone");
+    channel.sink.add(reqData.add(streamClosed: true));
+  }
+
+  void handleClientStream() {
+    if (reqData.streamClosed ?? false) {
+      clientStreamControllers[reqData.id]!.close().then((v) {
+        clientStreamControllers.remove(reqData.id);
+      }, onError: onError);
+    } else {
+      clientStreamControllers[reqData.id]!.sink.add(reqData.object);
+    }
+  }
+}

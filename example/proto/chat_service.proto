@@ -1,5 +1,9 @@
 syntax = "proto3";
 
+message ChatServiceConfig {
+  string server_address = 1;
+}
+
 message JoinChannelRequest {
   string nick = 1;
   string channel_name = 2;

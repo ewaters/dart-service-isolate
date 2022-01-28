@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dart_style/dart_style.dart';
 import 'package:build/build.dart';
 import 'package:path/path.dart' as path;
 import 'package:change_case/change_case.dart';
@@ -10,6 +11,7 @@ class ServiceIsolateBuilder implements Builder {
   final String _descriptorDir;
   final String _generatedDir;
   final String _userCreatedDir;
+  final String _configMessageSuffix;
 
   static String _getDef(BuilderOptions opts, String key, String def) =>
       opts.config[key] as String? ?? def;
@@ -17,7 +19,9 @@ class ServiceIsolateBuilder implements Builder {
   ServiceIsolateBuilder(BuilderOptions opts)
       : _descriptorDir = _getDef(opts, "descriptor_dir", "lib/src/generated"),
         _generatedDir = _getDef(opts, "generated_dir", "lib/src/generated"),
-        _userCreatedDir = _getDef(opts, "user_created_dir", "lib/src");
+        _userCreatedDir = _getDef(opts, "user_created_dir", "lib/src"),
+        _configMessageSuffix =
+            _getDef(opts, "config_message_suffix", "ServiceConfig");
 
   @override
   Future<void> build(BuildStep buildStep) async {
@@ -153,12 +157,19 @@ class _ServiceBuilder {
     final String interfaceName = "${serviceName}Interface";
     final String isolateName = "${serviceName}Isolate";
 
+    final String configMessageType = _parent._configMessageSuffix.isEmpty
+        ? ""
+        : svc.name + _parent._configMessageSuffix;
+
     _interfaceFile.writeAll(['', "abstract class $interfaceName {", ''], "\n");
 
     _serviceFile.writeAll([
       '',
       "class $serviceName extends $interfaceName {",
-      "  static Future<$interfaceName> create() async {",
+      if (configMessageType.isNotEmpty)
+        "  static Future<$interfaceName> create($configMessageType config) async {"
+      else
+        "  static Future<$interfaceName> create() async {",
       "    return $serviceName();",
       "  }",
       '',
@@ -166,48 +177,154 @@ class _ServiceBuilder {
 
     _isolateFile.writeAll([
       '',
-      "class $isolateName extends $interfaceName {",
+      'void _log(String msg) => print("$isolateName: \$msg");',
       '',
+      "/// A generated class that implements the [$interfaceName] via an",
+      "/// Isolate.",
+      "///",
+      "/// Depends upon manually written code in `" +
+          path.relative(_servicePath, from: path.dirname(_isolatePath)) +
+          "` that implements",
+      "/// the concrete [serviceName] class.",
+      "class $isolateName extends $interfaceName {",
+      "  final ServiceIsolate _iso;",
+      "  $isolateName._new(this._iso);",
+      '',
+      "/// Creates a new $isolateName.",
+      "  static Future<$isolateName> create() async =>"
+          "$isolateName._new(await ServiceIsolate.spawn(_runIsolate));",
+      '',
+      "/// Closes the underlying ServiceIsolate.",
+      "  Future close() => _iso.close();",
+      '\n',
+    ], "\n");
+
+    final runIsolate = StringBuffer();
+    runIsolate.writeAll([
+      'void _runIsolate(List<Object> args) async {',
+      if (configMessageType.isNotEmpty)
+        '  final svc = await $serviceName.create(args[1] as $configMessageType);'
+      else
+        '  final svc = await $serviceName.create();',
+      '  final Map<int, StreamController> clientStreamControllers = {};',
+      '  final channel = sc.IsolateChannel.connectSend(args[0] as SendPort);',
+      '  channel.stream.listen(',
+      '    (reqData) {',
+      '    final helper = ServiceIsolateHelper(channel, '
+          'reqData, clientStreamControllers);',
+      '    try {',
+      '      switch (reqData.method) {',
     ], "\n");
 
     for (final m in svc.method) {
+      final method = "/${svc.name}.${m.name}";
+      final dartMethodName = _methodName(m);
+      final requestType = _qualifyType(m.inputType);
+      final responseType = _qualifyType(m.outputType);
       final signature = "${m.serverStreaming ? "Stream" : "Future"}<" +
           _qualifyType(m.outputType) +
-          "> ${_methodName(m)}(" +
+          "> $dartMethodName(" +
           (m.clientStreaming
-              ? "Stream<${_qualifyType(m.inputType)}> stream"
-              : "${_qualifyType(m.inputType)} request") +
+              ? "Stream<$requestType> stream"
+              : "$requestType request") +
           ")";
+
       _interfaceFile.writeln("  $signature;");
-      _serviceFile.writeAll([
+      _isolateFile.writeAll([
         "  @override",
-        "  $signature {",
-        "    throw 'not implemented';",
-        "  }",
+        "  $signature =>",
+        if (m.clientStreaming && m.serverStreaming)
+          '_iso.bidiStream("$method", stream)'
+        else if (m.clientStreaming)
+          '_iso.clientStream("$method", stream)'
+        else if (m.serverStreaming)
+          '_iso.serverStream("$method", request)'
+        else
+          '_iso.request("$method", request)',
+        if (m.serverStreaming)
+          '.map((obj) => obj as $responseType);'
+        else
+          '.then((obj) => obj as $responseType);',
         ''
       ], "\n");
-      _isolateFile.writeAll([
+      _serviceFile.writeAll([
+        '',
         "  @override",
         "  $signature " + (m.serverStreaming ? "" : "async ") + "{",
         "    throw 'not implemented';",
         "  }",
         ''
       ], "\n");
+
+      final String futureArgs = 'helper.onData, onError: helper.onError';
+      final String listenArgs = '$futureArgs, onDone: helper.onDone';
+
+      runIsolate.writeln('case "$method":');
+      if (m.clientStreaming) {
+        runIsolate.writeAll([
+          '{',
+          'if (!clientStreamControllers.containsKey(reqData.id)) {',
+          '  final controller = StreamController<$requestType>();',
+          '  clientStreamControllers[reqData.id] = controller;',
+          if (m.serverStreaming)
+            '  svc.$dartMethodName(controller.stream).listen($listenArgs);'
+          else
+            '  svc.$dartMethodName(controller.stream).then($futureArgs);',
+          '}',
+          'helper.handleClientStream();',
+          '}',
+        ], "\n");
+      } else if (m.serverStreaming) {
+        runIsolate
+            .writeln('svc.$dartMethodName(reqData.object! as $requestType)'
+                '.listen($listenArgs);');
+      } else {
+        runIsolate
+            .writeln('svc.$dartMethodName(reqData.object! as $requestType)'
+                '.then($futureArgs);');
+      }
+      runIsolate.writeln('break;');
     }
 
+    runIsolate.writeAll([
+      '    default:',
+      '        helper.onError("_runIsolate.listen got unexpected '
+          'method " + reqData.method);',
+      '      }',
+      '    } catch (e) {',
+      '        helper.onError(e.toString());',
+      '      }',
+      '    },',
+      '    onError: (error) {',
+      '      _log("_runIsolate.listen error \$error");',
+      '      channel.sink.addError(error);',
+      '    },',
+      '    onDone: () {',
+      '      _log("_runIsolate.listen done");',
+      '    },',
+      '  );',
+      '}',
+    ], "\n");
     _interfaceFile.writeln("}");
     _serviceFile.writeln("}");
     _isolateFile.writeln("}");
+
+    _isolateFile.writeAll([
+      '',
+      runIsolate.toString(),
+    ], "\n");
   }
 
   Future finalize() async {
-    _log("Writing file $_interfacePath with ${_interfaceFile.toString()}");
-    await _buildStep.writeAsString(_interfaceAsset, _interfaceFile.toString());
+    final formatter = DartFormatter(pageWidth: 80, fixes: StyleFix.all);
+    Future writeAsset(AssetId asset, StringBuffer buf) async {
+      String out = formatter.format(buf.toString());
+      _log("Writing file ${asset.path} with:\n\n $out");
+      return _buildStep.writeAsString(asset, out);
+    }
 
-    _log("Writing file $_servicePath with ${_serviceFile.toString()}");
-    await _buildStep.writeAsString(_serviceAsset, _serviceFile.toString());
-
-    _log("Writing file $_isolatePath with ${_isolateFile.toString()}");
-    await _buildStep.writeAsString(_isolateAsset, _isolateFile.toString());
+    writeAsset(_interfaceAsset, _interfaceFile);
+    writeAsset(_serviceAsset, _serviceFile);
+    writeAsset(_isolateAsset, _isolateFile);
   }
 }
