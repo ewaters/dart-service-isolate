@@ -7,7 +7,8 @@ environment:
 dependencies:
   protobuf: ^2.0.0
   service_isolate: any
-  protoc_builder: any
+  protoc_builder:
+    git: https://github.com/ewaters/dart-protoc-builder.git
 
 dev_dependencies:
   build_runner: ^2.1.5
@@ -17,5 +18,3 @@ dev_dependencies:
 dependency_overrides:
   service_isolate:
     path: ../
-  protoc_builder:
-    path: ../../dart-protoc-builder/

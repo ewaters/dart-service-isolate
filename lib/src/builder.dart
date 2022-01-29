@@ -321,10 +321,15 @@ class _ServiceBuilder {
     Future writeAsset(AssetId asset, StringBuffer buf) async {
       String out = formatter.format(buf.toString());
       final f = File(asset.path);
-      if (f.existsSync() && f.readAsStringSync() == out) {
-        _log("No changes to ${asset.path}");
+      // TODO: This doesn't seem to return true even if the file exists.
+      if (f.existsSync()) {
+        if (f.readAsStringSync() == out) {
+          _log("No changes to ${asset.path}");
+        } else {
+          _log("Changes needed to ${asset.path}");
+        }
       } else {
-        _log("Writing file ${asset.path}");
+        _log("File ${asset.path} doesn't exist; writing it");
       }
       // Write it even if there are no changes just to mark it as tracked.
       return _buildStep.writeAsString(asset, out);
