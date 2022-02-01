@@ -14,6 +14,7 @@ class ServiceIsolateBuilder implements Builder {
   final String _generatedDir;
   final String _userCreatedDir;
   final String _configMessageSuffix;
+  final String _importPrefix;
 
   static String _getDef(BuilderOptions opts, String key, String def) =>
       opts.config[key] as String? ?? def;
@@ -24,15 +25,15 @@ class ServiceIsolateBuilder implements Builder {
         _generatedDir = _getDef(opts, "generated_dir", "lib/src/generated"),
         _userCreatedDir = _getDef(opts, "user_created_dir", "lib/src"),
         _configMessageSuffix =
-            _getDef(opts, "config_message_suffix", "ServiceConfig");
+            _getDef(opts, "config_message_suffix", "ServiceConfig"),
+        _importPrefix = _getDef(opts, "import_prefix", "");
 
   @override
   Future<void> build(BuildStep buildStep) async {
-    final svcBuilder = _ServiceBuilder(this, buildStep);
-
     final descSet = pb.FileDescriptorSet.fromBuffer(
         await buildStep.readAsBytes(buildStep.inputId));
-    svcBuilder.registerFileSet(descSet);
+
+    final svcBuilder = _ServiceBuilder(this, buildStep, descSet);
     for (final pb.FileDescriptorProto desc in descSet.file) {
       for (final pb.ServiceDescriptorProto svc in desc.service) {
         svcBuilder.addService(descSet, desc, svc);
@@ -54,24 +55,75 @@ class ServiceIsolateBuilder implements Builder {
   }
 }
 
+class _ImportHeader {
+  final _header = StringBuffer();
+  final _ServiceBuilder _parent;
+
+  final Map<String, String> _packageAliases = {};
+  int _aliasCount = 0;
+
+  _ImportHeader(this._parent);
+
+  /// A descriptor type is like ".<package>.<method>" or ".<method>" if not
+  /// package. We need to map this to a Dart type and use the related import
+  /// package if external to the file.
+  String qualifyType(String type) {
+    if (!type.startsWith(".")) {
+      throw "qualifyType('$type') unknown";
+    }
+    final parts = type.split(".");
+    final String package = parts.sublist(1, parts.length - 1).join(".");
+    return packageAlias(package) + ".${parts.last}";
+  }
+
+  String packageAlias(String package) {
+    if (!_packageAliases.containsKey(package)) {
+      for (final desc in _parent._descSet.file) {
+        if (desc.package.isEmpty || desc.package == ".") {
+          throw "All proto files must have a package specified";
+        }
+        if (desc.package != package) {
+          continue;
+        }
+
+        String alias = "pb$_aliasCount";
+        _packageAliases[desc.package] = alias;
+        _aliasCount++;
+
+        String importPrefix = "package:idk_protos/";
+
+        String dartProtoFile = desc.name.replaceFirst(".proto", ".pb.dart");
+
+        _header.writeln(
+            'import "${_parent._parent._importPrefix}$dartProtoFile" as $alias;');
+      }
+    }
+    return _packageAliases[package]!;
+  }
+
+  String toString() => _header.toString();
+}
+
 class _ServiceBuilder {
   final BuildStep _buildStep;
   final ServiceIsolateBuilder _parent;
+  final pb.FileDescriptorSet _descSet;
 
   final _interfaceFile = StringBuffer();
   final _isolateFile = StringBuffer();
   final _serviceFile = StringBuffer();
   int _servicesAdded = 0;
 
+  late _ImportHeader _importHeaders;
+
   // Map package name (without '.' suffix) to import alias.
-  final Map<String, String> _packages = {};
+  final Map<String, String> _packageAliases = {};
 
   // Helper to create unique import aliases.
   int _aliasCount = 0;
 
-  _ServiceBuilder(ServiceIsolateBuilder parent, BuildStep buildStep)
-      : _buildStep = buildStep,
-        _parent = parent {
+  _ServiceBuilder(this._parent, this._buildStep, this._descSet) {
+    _importHeaders = _ImportHeader(this);
     _initBuffers();
   }
 
@@ -90,11 +142,12 @@ class _ServiceBuilder {
 
   AssetId get _interfaceAsset => _outputMatching(suffix: ".interface.dart");
   AssetId get _isolateAsset => _outputMatching(suffix: ".isolate.dart");
-  AssetId get _serviceAsset => _outputMatching(prefix: _parent._userCreatedDir);
+  AssetId get _serviceAsset => _outputMatching(suffix: ".dart.ref");
 
   String get _interfacePath => _interfaceAsset.path;
   String get _isolatePath => _isolateAsset.path;
   String get _servicePath => _serviceAsset.path;
+  String get _serviceNonRefPath => _serviceAsset.path.replaceFirst(".ref", "");
   String get _servicePBPath =>
       _buildStep.inputId.path.replaceAll(".descriptor.pb", ".pb.dart");
   String get _serviceProtoPath =>
@@ -111,13 +164,9 @@ class _ServiceBuilder {
   }
 
   void _initInterface() {
-    String relServicePBPath =
-        path.relative(_servicePBPath, from: path.dirname(_interfacePath));
     _interfaceFile.writeAll([
       _generatedHeader,
       _ignoreHeader,
-      'import "$relServicePBPath";',
-      'export "$relServicePBPath";',
     ], "\n");
   }
 
@@ -136,7 +185,9 @@ class _ServiceBuilder {
 
   void _initIsolate() {
     String relServicePath =
-        path.relative(_servicePath, from: path.dirname(_isolatePath));
+        path.relative(_serviceNonRefPath, from: path.dirname(_isolatePath));
+    String relInterfacePath =
+        path.relative(_interfacePath, from: path.dirname(_isolatePath));
     _isolateFile.writeAll([
       _generatedHeader,
       _ignoreHeader,
@@ -145,22 +196,8 @@ class _ServiceBuilder {
       "import 'dart:isolate' show SendPort;",
       "import 'dart:async';",
       "import '$relServicePath';",
+      "import '$relInterfacePath';",
     ], "\n");
-  }
-
-  /// A descriptor type is like ".<package>.<method>" or ".<method>" if not
-  /// package. We need to map this to a Dart type and use the related import
-  /// package if external to the file.
-  String _qualifyType(String type) {
-    if (!type.startsWith(".")) {
-      throw "_qualifyType('$type') unknown";
-    }
-    final parts = type.split(".");
-    final String package = parts.sublist(1, parts.length - 1).join(".");
-    if (_packages.containsKey(package)) {
-      return "${_packages[package]!}.${parts.last}";
-    }
-    return parts.last;
   }
 
   String _methodName(pb.MethodDescriptorProto m) =>
@@ -168,38 +205,6 @@ class _ServiceBuilder {
 
   bool _messageExists(pb.FileDescriptorProto desc, String name) =>
       desc.messageType.where((typ) => typ.name == name).isNotEmpty;
-
-  /// Add import statements for all files that are not associated with this
-  /// service.
-  void registerFileSet(final pb.FileDescriptorSet descSet) {
-    String selfName = path.basename(_serviceProtoPath);
-    _log("registerFileSet: self: '$selfName', "
-        "protoPath '$_serviceProtoPath'");
-    for (final desc in descSet.file) {
-      if (desc.name == selfName) {
-        continue;
-      }
-      if (desc.package.isEmpty || desc.package == ".") {
-        throw "All proto files must have a package specified";
-      }
-      String alias = "pb$_aliasCount";
-      _packages[desc.package] = alias;
-      _aliasCount++;
-
-      String fullPath = path.normalize(path.join(
-          path.dirname(_buildStep.inputId.path),
-          desc.name.replaceAll(".proto", ".pb.dart")));
-      String relInterfacePath =
-          path.relative(fullPath, from: path.dirname(_interfacePath));
-      _interfaceFile.writeln('import "$relInterfacePath" as $alias;');
-      String relServicePath =
-          path.relative(fullPath, from: path.dirname(_servicePath));
-      _serviceFile.writeln('import "$relServicePath" as $alias;');
-      String relIsolatePath =
-          path.relative(fullPath, from: path.dirname(_isolatePath));
-      _isolateFile.writeln('import "$relIsolatePath" as $alias;');
-    }
-  }
 
   void addService(final pb.FileDescriptorSet descSet,
       final pb.FileDescriptorProto desc, final pb.ServiceDescriptorProto svc) {
@@ -215,8 +220,6 @@ class _ServiceBuilder {
         configMessageType = candidate;
       }
     }
-
-    _log("configMessageType $configMessageType");
 
     _interfaceFile.writeAll(['', "abstract class $interfaceName {", ''], "\n");
 
@@ -284,8 +287,8 @@ class _ServiceBuilder {
     for (final m in svc.method) {
       final method = "/${svc.name}.${m.name}";
       final dartMethodName = _methodName(m);
-      final requestType = _qualifyType(m.inputType);
-      final responseType = _qualifyType(m.outputType);
+      final requestType = _importHeaders.qualifyType(m.inputType);
+      final responseType = _importHeaders.qualifyType(m.outputType);
       final signature = "${m.serverStreaming ? "Stream" : "Future"}<" +
           responseType +
           "> $dartMethodName(" +
@@ -385,8 +388,9 @@ class _ServiceBuilder {
       return;
     }
     final formatter = DartFormatter(pageWidth: 80, fixes: StyleFix.all);
+    final commonHeader = _importHeaders.toString();
     Future writeAsset(AssetId asset, StringBuffer buf) async {
-      String out = formatter.format(buf.toString());
+      String out = formatter.format(commonHeader + "\n" + buf.toString());
       final f = File(asset.path);
       // TODO: This doesn't seem to return true even if the file exists.
       if (f.existsSync()) {
