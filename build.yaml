@@ -3,7 +3,7 @@ builders:
     import: "package:service_isolate/builder.dart"
     builder_factories: ["getBuilder"]
     build_extensions: {
-      ".descriptor.pb": [".dart"]
+      ".descriptor.pb": [".dart", ".dart.ref"]
     }
     auto_apply: dependents
     build_to: source
