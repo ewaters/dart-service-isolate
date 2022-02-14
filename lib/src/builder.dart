@@ -124,7 +124,6 @@ class _ServiceBuilder {
 
   _ServiceBuilder(this._parent, this._buildStep, this._descSet) {
     _importHeaders = _ImportHeader(this);
-    _initBuffers();
   }
 
   static void _log(String msg) => print("_ServiceBuilder: $msg");
@@ -157,38 +156,32 @@ class _ServiceBuilder {
   static const String _ignoreHeader =
       "// ignore_for_file: public_member_api_docs";
 
-  void _initBuffers() {
-    _initInterface();
-    _initService();
-    _initIsolate();
-  }
-
-  void _initInterface() {
-    _interfaceFile.writeAll([
+  String _interfaceHeaders() {
+    return [
       _generatedHeader,
       _ignoreHeader,
-    ], "\n");
+      _importHeaders.toString(),
+    ].join("\n");
   }
 
-  void _initService() {
+  String _serviceHeaders() {
     String relInterfacePath =
         path.relative(_interfacePath, from: path.dirname(_servicePath));
     String relIsolatePath =
         path.relative(_isolatePath, from: path.dirname(_servicePath));
-    _serviceFile.writeAll([
+    return [
       '/// REMOVE THIS TEXT: Edit this file and flesh out the service',
+      _importHeaders.toString(),
       'import "$relInterfacePath";',
       'export "$relInterfacePath";',
       'export "$relIsolatePath";',
-    ], "\n");
+    ].join("\n");
   }
 
-  void _initIsolate() {
+  String _isolateHeaders() {
     String relServicePath =
         path.relative(_serviceNonRefPath, from: path.dirname(_isolatePath));
-    String relInterfacePath =
-        path.relative(_interfacePath, from: path.dirname(_isolatePath));
-    _isolateFile.writeAll([
+    return [
       _generatedHeader,
       _ignoreHeader,
       "import 'package:service_isolate/service_isolate.dart';",
@@ -196,8 +189,8 @@ class _ServiceBuilder {
       "import 'dart:isolate' show SendPort;",
       "import 'dart:async';",
       "import '$relServicePath';",
-      "import '$relInterfacePath';",
-    ], "\n");
+      _importHeaders.toString(),
+    ].join("\n");
   }
 
   String _methodName(pb.MethodDescriptorProto m) =>
@@ -208,6 +201,11 @@ class _ServiceBuilder {
 
   void addService(final pb.FileDescriptorSet descSet,
       final pb.FileDescriptorProto desc, final pb.ServiceDescriptorProto svc) {
+    if (path.basename(_serviceProtoPath) != path.basename(desc.name)) {
+      _log("addService(${desc.name}) appears to be external "
+          "to $_serviceProtoPath so skipping");
+      return;
+    }
     _servicesAdded++;
     final String serviceName = "${svc.name}Service";
     final String interfaceName = "${serviceName}Interface";
@@ -217,15 +215,21 @@ class _ServiceBuilder {
     if (_parent._configMessageSuffix.isNotEmpty) {
       String candidate = svc.name + _parent._configMessageSuffix;
       if (_messageExists(desc, candidate)) {
-        configMessageType = candidate;
+        //configMessageType = candidate;
+        configMessageType =
+            _importHeaders.qualifyType(".${desc.package}.$candidate");
       }
     }
 
-    _interfaceFile.writeAll(['', "abstract class $interfaceName {", ''], "\n");
+    _interfaceFile.writeAll(
+        ['', "abstract class $interfaceName {", "Future<void> close();", ''],
+        "\n");
 
     _serviceFile.writeAll([
       '',
+      "/// TODO: Document $serviceName",
       "class $serviceName extends $interfaceName {",
+      "  /// Default constructor",
       if (configMessageType.isNotEmpty)
         "  static Future<$interfaceName> create($configMessageType config) "
             "async {"
@@ -234,6 +238,9 @@ class _ServiceBuilder {
       "    return $serviceName();",
       "  }",
       '',
+      "  /// Close the service",
+      "  @override",
+      "  Future<void> close() async { return; }",
     ], "\n");
 
     _isolateFile.writeAll([
@@ -243,10 +250,11 @@ class _ServiceBuilder {
       "/// A generated class that implements the [$interfaceName] via an",
       "/// Isolate.",
       "///",
-      "/// Depends upon manually written code in `" +
-          path.relative(_servicePath, from: path.dirname(_isolatePath)) +
+      "/// Depends upon manually written code in ",
+      "/// `" +
+          path.relative(_serviceNonRefPath, from: path.dirname(_isolatePath)) +
           "` that implements",
-      "/// the concrete [serviceName] class.",
+      "/// the concrete [$serviceName] class.",
       "class $isolateName extends $interfaceName {",
       "  final ServiceIsolate _iso;",
       "  $isolateName._new(this._iso);",
@@ -261,7 +269,8 @@ class _ServiceBuilder {
         "  static Future<$isolateName> create() async =>"
             "$isolateName._new(await ServiceIsolate.spawn(_runIsolate));",
       '',
-      "/// Closes the underlying ServiceIsolate.",
+      "  /// Closes the underlying ServiceIsolate.",
+      "  @override",
       "  Future close() => _iso.close();",
       '\n',
     ], "\n");
@@ -388,9 +397,8 @@ class _ServiceBuilder {
       return;
     }
     final formatter = DartFormatter(pageWidth: 80, fixes: StyleFix.all);
-    final commonHeader = _importHeaders.toString();
-    Future writeAsset(AssetId asset, StringBuffer buf) async {
-      String out = formatter.format(commonHeader + "\n" + buf.toString());
+    Future writeAsset(AssetId asset, String headers, StringBuffer buf) async {
+      String out = formatter.format(headers + "\n" + buf.toString());
       final f = File(asset.path);
       // TODO: This doesn't seem to return true even if the file exists.
       if (f.existsSync()) {
@@ -406,8 +414,8 @@ class _ServiceBuilder {
       return _buildStep.writeAsString(asset, out);
     }
 
-    writeAsset(_interfaceAsset, _interfaceFile);
-    writeAsset(_isolateAsset, _isolateFile);
-    writeAsset(_serviceAsset, _serviceFile);
+    writeAsset(_interfaceAsset, _interfaceHeaders(), _interfaceFile);
+    writeAsset(_isolateAsset, _isolateHeaders(), _isolateFile);
+    writeAsset(_serviceAsset, _serviceHeaders(), _serviceFile);
   }
 }
