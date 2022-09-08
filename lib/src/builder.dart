@@ -95,7 +95,7 @@ class _ImportHeader {
         String dartProtoFile = desc.name.replaceFirst(".proto", ".pb.dart");
 
         _header.writeln(
-            'import "${_parent._parent._importPrefix}$dartProtoFile" as $alias;');
+            "import '${_parent._parent._importPrefix}$dartProtoFile' as $alias;");
       }
     }
     return _packageAliases[package]!;
@@ -154,7 +154,7 @@ class _ServiceBuilder {
 
   static const String _generatedHeader = "// Generated code: do not modify";
   static const String _ignoreHeader =
-      "// ignore_for_file: public_member_api_docs";
+      "// ignore_for_file: public_member_api_docs, always_use_package_imports";
 
   String _interfaceHeaders() {
     return [
@@ -172,9 +172,9 @@ class _ServiceBuilder {
     return [
       '/// REMOVE THIS TEXT: Edit this file and flesh out the service',
       _importHeaders.toString(),
-      'import "$relInterfacePath";',
-      'export "$relInterfacePath";',
-      'export "$relIsolatePath";',
+      "import '$relInterfacePath';",
+      "export '$relInterfacePath';",
+      "export '$relIsolatePath';",
     ].join("\n");
   }
 
