@@ -245,7 +245,7 @@ class _ServiceBuilder {
 
     _isolateFile.writeAll([
       '',
-      'void _log(String msg) => print("$isolateName: \$msg");',
+      "void _log(String msg) => print('$isolateName: \$msg');",
       '',
       "/// A generated class that implements the [$interfaceName] via an",
       "/// Isolate.",
@@ -311,13 +311,13 @@ class _ServiceBuilder {
         "  @override",
         "  $signature =>",
         if (m.clientStreaming && m.serverStreaming)
-          '_iso.bidiStream("$method", stream)'
+          "_iso.bidiStream('$method', stream)"
         else if (m.clientStreaming)
-          '_iso.clientStream("$method", stream)'
+          "_iso.clientStream('$method', stream)"
         else if (m.serverStreaming)
-          '_iso.serverStream("$method", request)'
+          "_iso.serverStream('$method', request)"
         else
-          '_iso.request("$method", request)',
+          "_iso.request('$method', request)",
         if (m.serverStreaming)
           '.map((obj) => obj as $responseType);'
         else
@@ -336,7 +336,7 @@ class _ServiceBuilder {
       final String futureArgs = 'helper.onData, onError: helper.onError';
       final String listenArgs = '$futureArgs, onDone: helper.onDone';
 
-      runIsolate.writeln('case "$method":');
+      runIsolate.writeln("case '$method':");
       if (m.clientStreaming) {
         runIsolate.writeAll([
           '{',
@@ -365,19 +365,19 @@ class _ServiceBuilder {
 
     runIsolate.writeAll([
       '    default:',
-      '        helper.onError("_runIsolate.listen got unexpected '
-          'method " + reqData.method);',
+      "        helper.onError('_runIsolate.listen got unexpected "
+          "method ' + reqData.method);",
       '      }',
       '    } catch (e) {',
       '        helper.onError(e.toString());',
       '      }',
       '    },',
       '    onError: (error) {',
-      '      _log("_runIsolate.listen error \$error");',
+      "      _log('_runIsolate.listen error \$error');",
       '      channel.sink.addError(error);',
       '    },',
       '    onDone: () {',
-      '      _log("_runIsolate.listen done");',
+      "      _log('_runIsolate.listen done');",
       '    },',
       '  );',
       '}',
