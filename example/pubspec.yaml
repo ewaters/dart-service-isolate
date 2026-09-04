@@ -5,7 +5,7 @@ environment:
   sdk: '>=3.2.0-0 <4.0.0'
 
 dependencies:
-  protobuf: ^2.0.0
+  protobuf: ^3.1.0
   service_isolate: any
   protoc_builder: ^0.4.0
   # protoc_builder:
