@@ -6,7 +6,7 @@ environment:
   sdk: '>=3.2.0-0 <4.0.0'
 
 dependencies:
-  protobuf: ^3.1.0
+  protobuf: '>=3.1.0 <7.0.0'
   change_case: any
   stream_channel: ^2.1.0
   protoc_builder: ^0.4.0
