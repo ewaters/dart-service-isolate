@@ -396,7 +396,14 @@ class _ServiceBuilder {
     if (_servicesAdded == 0) {
       return;
     }
-    final formatter = DartFormatter(pageWidth: 80, fixes: StyleFix.all);
+    // dart_style 3 dropped `fixes:` and made `languageVersion` required --
+    // the formatter now needs to know which language version to parse as.
+    // `latestLanguageVersion` keeps generated output on the same rules the
+    // rest of the repo is formatted with.
+    final formatter = DartFormatter(
+      pageWidth: 80,
+      languageVersion: DartFormatter.latestLanguageVersion,
+    );
     Future writeAsset(AssetId asset, String headers, StringBuffer buf) async {
       String out = formatter.format(headers + "\n" + buf.toString());
       final f = File(asset.path);
