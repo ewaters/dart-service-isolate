@@ -10,9 +10,13 @@ targets:
           proto_paths:
             - "proto/"
           out_dir: "lib/src/generated"
-          build_descriptor: true
       service_isolate:
         options:
-          descriptor_dir: "lib/src/generated"
+          # Upstream protoc_builder does not write descriptor sets. Regenerate
+          # proto/chat_service.descriptor.pb after editing the .proto:
+          #   protoc --include_imports --proto_path=proto \
+          #     --descriptor_set_out=proto/chat_service.descriptor.pb \
+          #     proto/chat_service.proto
+          descriptor_dir: "proto"
           generated_dir: "lib/src/generated"
           user_created_dir: "lib/src/services"

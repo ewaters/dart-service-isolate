@@ -1,0 +1,46 @@
+/// REMOVE THIS TEXT: Edit this file and flesh out the service
+import 'chat_service.pb.dart' as pb0;
+
+import '../generated/chat_service.interface.dart';
+export '../generated/chat_service.interface.dart';
+export '../generated/chat_service.isolate.dart';
+
+/// TODO: Document ChatService
+class ChatService extends ChatServiceInterface {
+  /// Default constructor
+  static Future<ChatServiceInterface> create(
+    pb0.ChatServiceConfig config,
+  ) async {
+    return ChatService();
+  }
+
+  /// Close the service
+  @override
+  Future<void> close() async {
+    return;
+  }
+
+  @override
+  Future<pb0.JoinChannelResponse> joinChannel(
+    pb0.JoinChannelRequest request,
+  ) async {
+    throw 'not implemented';
+  }
+
+  @override
+  Stream<pb0.NickMessage> observeChannel(pb0.ObserveChannelRequest request) {
+    throw 'not implemented';
+  }
+
+  @override
+  Future<pb0.StreamStatusResponse> sendStatus(
+    Stream<pb0.StatusMessage> stream,
+  ) async {
+    throw 'not implemented';
+  }
+
+  @override
+  Stream<pb0.NickMessage> interact(Stream<pb0.InteractRequest> stream) {
+    throw 'not implemented';
+  }
+}

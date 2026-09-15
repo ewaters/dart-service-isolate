@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package chat;
+
 message ChatServiceConfig {
   string server_address = 1;
 }

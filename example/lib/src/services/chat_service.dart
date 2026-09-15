@@ -1,7 +1,8 @@
-/// REMOVE THIS TEXT: Edit this file and flesh out the service
 import "../generated/chat_service.interface.dart";
+import "../generated/chat_service.pb.dart";
 export "../generated/chat_service.interface.dart";
 export "../generated/chat_service.isolate.dart";
+export "../generated/chat_service.pb.dart";
 
 /// A simple chat service.
 class ChatService extends ChatServiceInterface {
@@ -11,6 +12,10 @@ class ChatService extends ChatServiceInterface {
   static Future<ChatServiceInterface> create(ChatServiceConfig config) async {
     return ChatService();
   }
+
+  /// Close the service.
+  @override
+  Future<void> close() async {}
 
   @override
   Future<JoinChannelResponse> joinChannel(JoinChannelRequest request) async {
