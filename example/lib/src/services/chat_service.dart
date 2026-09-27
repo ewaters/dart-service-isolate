@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import "../generated/chat_service.interface.dart";
 import "../generated/chat_service.pb.dart";
 export "../generated/chat_service.interface.dart";
@@ -7,6 +9,7 @@ export "../generated/chat_service.pb.dart";
 /// A simple chat service.
 class ChatService extends ChatServiceInterface {
   final Map<String, String> _nickStatus = {};
+  int _cancelledObservations = 0;
 
   /// Creates a new service.
   static Future<ChatServiceInterface> create(ChatServiceConfig config) async {
@@ -19,6 +22,9 @@ class ChatService extends ChatServiceInterface {
 
   @override
   Future<JoinChannelResponse> joinChannel(JoinChannelRequest request) async {
+    if (request.nick == 'cancel-count') {
+      return JoinChannelResponse(topic: '$_cancelledObservations');
+    }
     return JoinChannelResponse(
       topic: "Example topic",
       nick: ["Sarah", "Emma", "Luca"],
@@ -27,6 +33,23 @@ class ChatService extends ChatServiceInterface {
 
   @override
   Stream<NickMessage> observeChannel(ObserveChannelRequest request) {
+    if (request.channelName == 'slow') {
+      Timer? timer;
+      late final StreamController<NickMessage> controller;
+      controller = StreamController<NickMessage>(
+        onListen: () {
+          controller.add(NickMessage(msg: 'first'));
+          timer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+            controller.add(NickMessage(msg: 'later'));
+          });
+        },
+        onCancel: () {
+          timer?.cancel();
+          _cancelledObservations++;
+        },
+      );
+      return controller.stream;
+    }
     return Stream.fromIterable(<NickMessage>[
       NickMessage(
           timeSec: 1,

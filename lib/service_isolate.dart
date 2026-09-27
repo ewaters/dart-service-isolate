@@ -25,8 +25,13 @@ class IsolateMessage {
   bool? streamClosed;
 
   /// Constructor. [id] and [method] are required. Not for general use.
-  IsolateMessage(this.id, this.method,
-      {this.object, this.exception, this.streamClosed});
+  IsolateMessage(
+    this.id,
+    this.method, {
+    this.object,
+    this.exception,
+    this.streamClosed,
+  });
 
   /// Debug helper.
   @override
@@ -47,8 +52,13 @@ class IsolateMessage {
 
   /// Build up a derived response message from a given request.
   IsolateMessage add({Object? object, Object? exception, bool? streamClosed}) =>
-      IsolateMessage(id, method,
-          object: object, exception: exception, streamClosed: streamClosed);
+      IsolateMessage(
+        id,
+        method,
+        object: object,
+        exception: exception,
+        streamClosed: streamClosed,
+      );
 }
 
 /// A protocol buffer based isolate supporting streaming methods.
@@ -64,6 +74,7 @@ class ServiceIsolate {
 
   final Map<int, Completer<IsolateMessage>> _completers = {};
   final Map<int, StreamController<IsolateMessage>> _controllers = {};
+  final Set<int> _cancelledStreams = {};
 
   ServiceIsolate._new(this._channel, this._receivePort, this._iso);
 
@@ -73,13 +84,17 @@ class ServiceIsolate {
   ///
   /// If [firstMessage] is present, it will be sent in the isolate setup. Must
   /// be isolate channel safe.
-  static Future<ServiceIsolate> spawn(void Function(List<Object>) runIsolate,
-      {Object? firstMessage}) async {
+  static Future<ServiceIsolate> spawn(
+    void Function(List<Object>) runIsolate, {
+    Object? firstMessage,
+  }) async {
     final rp = ReceivePort();
     final channel = sc.IsolateChannel.connectReceive(rp);
     _log("spawn() is starting an isolate");
-    final iso = await Isolate.spawn(
-        runIsolate, [rp.sendPort, if (firstMessage != null) firstMessage]);
+    final iso = await Isolate.spawn(runIsolate, [
+      rp.sendPort,
+      if (firstMessage != null) firstMessage,
+    ]);
     // iso.errors.listen((e) => _log("isolate error $e"));
     _log("spawn() has started an isolate");
     final svc = ServiceIsolate._new(channel, rp, iso);
@@ -107,6 +122,8 @@ class ServiceIsolate {
           _completers.remove(data.id)!.complete(data);
         } else if (_controllers.containsKey(data.id)) {
           _controllers[data.id]!.sink.add(data);
+        } else if (_cancelledStreams.contains(data.id)) {
+          if (data.streamClosed ?? false) _cancelledStreams.remove(data.id);
         } else {
           throw "Unhandled event from isolate $data";
         }
@@ -153,21 +170,38 @@ class ServiceIsolate {
     _controllers[id] = controller;
     _channel.sink.add(IsolateMessage(id, method, object: request));
 
-    final response = StreamController<Object>();
-    controller.stream.listen((IsolateMessage msg) {
-      if (msg.exception != null) {
-        response.addError(msg.exception!);
-      } else if (msg.object != null) {
-        response.add(msg.object!);
-      } else if (msg.streamClosed ?? false) {
-        response.close();
-        controller.sink.close();
-      } else {
-        response.addError("serverStream received invalid IsolateMessage");
-      }
-    }, onDone: () {
-      _log("serverStream($method) listen done");
-    });
+    var finished = false;
+    late final StreamSubscription<IsolateMessage> subscription;
+    final response = StreamController<Object>(
+      onCancel: () async {
+        _controllers.remove(id);
+        await subscription.cancel();
+        await controller.close();
+        if (!finished && !_closed) {
+          _cancelledStreams.add(id);
+          _channel.sink.add(IsolateMessage(id, method, streamClosed: true));
+        }
+      },
+    );
+    subscription = controller.stream.listen(
+      (IsolateMessage msg) {
+        if (msg.exception != null) {
+          response.addError(msg.exception!);
+        } else if (msg.object != null) {
+          response.add(msg.object!);
+        } else if (msg.streamClosed ?? false) {
+          finished = true;
+          _controllers.remove(id);
+          response.close();
+          controller.sink.close();
+        } else {
+          response.addError("serverStream received invalid IsolateMessage");
+        }
+      },
+      onDone: () {
+        _log("serverStream($method) listen done");
+      },
+    );
     return response.stream;
   }
 
@@ -201,27 +235,33 @@ class ServiceIsolate {
     final controller = StreamController<IsolateMessage>();
     _controllers[id] = controller;
 
-    request.listen((obj) {
-      _channel.sink.add(IsolateMessage(id, method, object: obj));
-    }, onDone: () {
-      _channel.sink.add(IsolateMessage(id, method, streamClosed: true));
-    });
+    request.listen(
+      (obj) {
+        _channel.sink.add(IsolateMessage(id, method, object: obj));
+      },
+      onDone: () {
+        _channel.sink.add(IsolateMessage(id, method, streamClosed: true));
+      },
+    );
 
     final response = StreamController<Object>();
-    controller.stream.listen((IsolateMessage msg) {
-      if (msg.exception != null) {
-        response.addError(msg.exception!);
-      } else if (msg.object != null) {
-        response.add(msg.object!);
-      } else if (msg.streamClosed ?? false) {
-        response.close();
-        controller.sink.close();
-      } else {
-        response.addError("serverStream received invalid IsolateMessage");
-      }
-    }, onDone: () {
-      _log("serverStream($method) listen done");
-    });
+    controller.stream.listen(
+      (IsolateMessage msg) {
+        if (msg.exception != null) {
+          response.addError(msg.exception!);
+        } else if (msg.object != null) {
+          response.add(msg.object!);
+        } else if (msg.streamClosed ?? false) {
+          response.close();
+          controller.sink.close();
+        } else {
+          response.addError("serverStream received invalid IsolateMessage");
+        }
+      },
+      onDone: () {
+        _log("serverStream($method) listen done");
+      },
+    );
     return response.stream;
   }
 }
@@ -234,7 +274,10 @@ class ServiceIsolateHelper {
   static void _log(String msg) => print("     IsolateHelper: $msg");
 
   ServiceIsolateHelper(
-      this.channel, this.reqData, this.clientStreamControllers) {
+    this.channel,
+    this.reqData,
+    this.clientStreamControllers,
+  ) {
     _log("got $reqData");
   }
 

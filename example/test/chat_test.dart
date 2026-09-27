@@ -41,4 +41,21 @@ void main() {
     await _testService(chat);
     await chat.close();
   });
+
+  test('canceling a server stream stops its isolate subscription', () async {
+    final chat = await ChatServiceIsolate.create(config);
+    addTearDown(chat.close);
+    expect(
+        (await chat
+                .observeChannel(
+                  ObserveChannelRequest(channelName: 'slow'),
+                )
+                .first)
+            .msg,
+        'first');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final count =
+        await chat.joinChannel(JoinChannelRequest(nick: 'cancel-count'));
+    expect(count.topic, '1');
+  });
 }

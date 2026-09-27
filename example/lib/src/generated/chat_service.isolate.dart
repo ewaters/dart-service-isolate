@@ -57,9 +57,20 @@ class ChatServiceIsolate extends ChatServiceInterface {
 void _runIsolate(List<Object> args) async {
   final svc = await ChatService.create(args[1] as pb0.ChatServiceConfig);
   final Map<int, StreamController> clientStreamControllers = {};
+  final Map<int, StreamSubscription> serverStreamSubscriptions = {};
   final channel = sc.IsolateChannel.connectSend(args[0] as SendPort);
   channel.stream.listen(
     (reqData) {
+      if (reqData.streamClosed == true &&
+          serverStreamSubscriptions.containsKey(reqData.id)) {
+        final subscription = serverStreamSubscriptions.remove(reqData.id)!;
+        unawaited(
+          subscription.cancel().then(
+            (_) => channel.sink.add(reqData.add(streamClosed: true)),
+          ),
+        );
+        return;
+      }
       final helper = ServiceIsolateHelper(
         channel,
         reqData,
@@ -73,12 +84,15 @@ void _runIsolate(List<Object> args) async {
                 .then(helper.onData, onError: helper.onError);
             break;
           case '/Chat.ObserveChannel':
-            svc
+            serverStreamSubscriptions[reqData.id] = svc
                 .observeChannel(reqData.object! as pb0.ObserveChannelRequest)
                 .listen(
                   helper.onData,
                   onError: helper.onError,
-                  onDone: helper.onDone,
+                  onDone: () {
+                    serverStreamSubscriptions.remove(reqData.id);
+                    helper.onDone();
+                  },
                 );
             break;
           case '/Chat.SendStatus':

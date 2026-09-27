@@ -199,8 +199,8 @@ class _ServiceBuilder {
   bool _messageExists(pb.FileDescriptorProto desc, String name) =>
       desc.messageType.where((typ) => typ.name == name).isNotEmpty;
 
-  void addService(final pb.FileDescriptorSet descSet,
-      final pb.FileDescriptorProto desc, final pb.ServiceDescriptorProto svc) {
+  void addService(pb.FileDescriptorSet descSet, pb.FileDescriptorProto desc,
+      pb.ServiceDescriptorProto svc) {
     if (path.basename(_serviceProtoPath) != path.basename(desc.name)) {
       _log("addService(${desc.name}) appears to be external "
           "to $_serviceProtoPath so skipping");
@@ -284,9 +284,17 @@ class _ServiceBuilder {
       else
         '  final svc = await $serviceName.create();',
       '  final Map<int, StreamController> clientStreamControllers = {};',
+      '  final Map<int, StreamSubscription> serverStreamSubscriptions = {};',
       '  final channel = sc.IsolateChannel.connectSend(args[0] as SendPort);',
       '  channel.stream.listen(',
       '    (reqData) {',
+      '    if (reqData.streamClosed == true && '
+          'serverStreamSubscriptions.containsKey(reqData.id)) {',
+      '      final subscription = serverStreamSubscriptions.remove(reqData.id)!;',
+      '      unawaited(subscription.cancel().then((_) => '
+          'channel.sink.add(reqData.add(streamClosed: true))));',
+      '      return;',
+      '    }',
       '    final helper = ServiceIsolateHelper(channel, '
           'reqData, clientStreamControllers);',
       '    try {',
@@ -352,9 +360,17 @@ class _ServiceBuilder {
           '}',
         ], "\n");
       } else if (m.serverStreaming) {
-        runIsolate
-            .writeln('svc.$dartMethodName(reqData.object! as $requestType)'
-                '.listen($listenArgs);');
+        runIsolate.writeAll([
+          'serverStreamSubscriptions[reqData.id] =',
+          '  svc.$dartMethodName(reqData.object! as $requestType).listen(',
+          '    helper.onData,',
+          '    onError: helper.onError,',
+          '    onDone: () {',
+          '      serverStreamSubscriptions.remove(reqData.id);',
+          '      helper.onDone();',
+          '    },',
+          '  );',
+        ], '\n');
       } else {
         runIsolate
             .writeln('svc.$dartMethodName(reqData.object! as $requestType)'
